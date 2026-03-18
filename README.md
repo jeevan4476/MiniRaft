@@ -152,7 +152,7 @@ Client draws → Gateway → Leader.AppendEntries
 
 ### Node States
 
-![](./state_transtitions.png)
+![](./state_transition.png)
 
 | State | Behavior |
 |---|---|
