@@ -1,6 +1,6 @@
 # Distributed Real-Time Drawing Board with Mini-RAFT Consensus
 
-> A fault-tolerant, collaborative whiteboard backed by a 3-replica RAFT consensus cluster — built with TypeScript (Next.js + Bun) and Go (Replicas).
+> A fault-tolerant, collaborative whiteboard backed by a 3-replica RAFT consensus cluster — built with TypeScript (Gateway + Frontend) and Go (Replicas).
 
 ---
 
@@ -17,7 +17,10 @@
 - [Testing & Fault Injection](#testing--fault-injection)
 - [Docker & Deployment](#docker--deployment)
 - [Environment Variables](#environment-variables)
-- [References](#references)
+- [Week-by-Week Milestones](#week-by-week-milestones)
+- [Submission Checklist](#submission-checklist)
+- [Bonus Challenges](#bonus-challenges)
+- [Team](#team)
 
 ---
 
@@ -26,7 +29,7 @@
 This project simulates a distributed system by implementing a collaborative drawing board where:
 
 - Multiple browser clients draw simultaneously on a shared canvas
-- A **Gateway** managed by **Bun + Hono** handles all WebSocket connections
+- A **Gateway** (TypeScript/bun) manages all WebSocket connections
 - Three **Replica** nodes (Go) maintain a shared stroke log via a Mini-RAFT consensus protocol
 - The system survives leader crashes, hot-reloads, and rolling replica restarts with **zero downtime**
 
@@ -44,7 +47,7 @@ This mirrors the architecture used in real-world systems:
 
 ## Architecture
 
-```text
+```
  Browser 1        Browser 2        Browser 3
     │                │                │
     └────────────────┴────────────────┘
@@ -54,7 +57,7 @@ This mirrors the architecture used in real-world systems:
            │     Gateway      │ 
            │    (Port 8080)   │  
            └─────────┬────────┘  
-                     │  gRPC / HTTP
+                     │  HTTP RPC
           ┌──────────┼─────────────┐
           ▼          ▼             ▼
     ┌──────────┐ ┌──────────┐ ┌──────────┐
@@ -69,7 +72,7 @@ This mirrors the architecture used in real-world systems:
 
 **Flow for a single stroke:**
 
-```text
+```
 Client draws → Gateway → Leader.AppendEntries
                              │
                     ┌────────┴────────┐
@@ -97,7 +100,7 @@ Client draws → Gateway → Leader.AppendEntries
 
 ## Project Structure
 
-```text
+```
 .
 ├── docker-compose.yml
 ├── README.md
@@ -107,6 +110,7 @@ Client draws → Gateway → Leader.AppendEntries
 │   │   ├── canvas.ts           # Drawing logic, stroke serialization
 │   │   ├── socket.ts           # WebSocket client, reconnect logic
 │   │   └── main.ts             # Entry point
+│   ├── index.html
 │   ├── package.json
 │   └── tsconfig.json
 │
@@ -136,7 +140,7 @@ Client draws → Gateway → Leader.AppendEntries
 ├── replica3/                   # Same structure as replica1
 │   └── ...
 │
-└── logs/                       # Captured failover event logs
+└── logs/                       # Captured failover event logs (for submission)
     ├── election-demo.log
     ├── failover-demo.log
     └── sync-log-demo.log
@@ -156,11 +160,11 @@ Client draws → Gateway → Leader.AppendEntries
 | **Candidate** | Increments term, votes for self, sends `RequestVote` to all peers. |
 | **Leader** | Sends heartbeats every **150ms**. Replicates log entries. Commits on majority ACK. |
 
-### RAFT Quorum
+### RAFT uses majority quorum in two separate places:
 | Where | Why majority is needed |
 |---|---|
-| **Election** | A candidate needs ≥2/3 votes to become leader — prevents two leaders at the same time |
-| **Log commit** | A leader needs ≥2/3 ACKs before marking a stroke as committed — prevents data loss if the leader crashes right after writing |
+|Election|A candidate needs ≥2/3 votes to become leader — prevents two leaders at the same time
+|Log commit|A leader needs ≥2/3 ACKs before marking a stroke as committed — prevents data loss if the leader crashes right after writing
 
 ### Timing
 
@@ -179,7 +183,7 @@ Client draws → Gateway → Leader.AppendEntries
 
 ### Catch-Up Protocol (Restarted Node)
 
-```text
+```
 Restarted node (empty log, term=0)
     │
     │ receives AppendEntries from leader
@@ -333,7 +337,7 @@ Returns current node state. Used by the Gateway to discover the active leader.
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [docker-compose](https://docs.docker.com/compose/)
-- Bun ≥ 1.0 (for local Gateway/Frontend development)
+- Node.js ≥ 18 (for local Gateway/Frontend development)
 - Go ≥ 1.21 (for local Replica development)
 
 ### Run the full cluster
@@ -353,7 +357,7 @@ open http://localhost:3000
 ### Run services individually (for development)
 
 ```bash
-# Frontend (Next.js dev server)
+# Frontend (Vite dev server)
 cd frontend && bun install && bun run dev
 
 # Gateway
@@ -390,7 +394,7 @@ The Gateway uses `bun --watch`. Same bind-mount behavior.
 
 All replicas log key events to stdout in structured format:
 
-```text
+```
 [replica1] term=3 state=LEADER    event=heartbeat_sent      peers=2
 [replica1] term=3 state=LEADER    event=entry_committed     index=47
 [replica2] term=3 state=FOLLOWER  event=vote_granted        for=replica1
@@ -510,6 +514,59 @@ networks:
 
 ---
 
+## Week-by-Week Milestones
+
+### Week 1 — Design & Architecture
+
+- [ ] System diagram
+- [ ] RAFT state transition diagram
+- [ ] API spec for all 4 RPCs (VoteRequest, AppendEntries, Heartbeat, SyncLog)
+- [ ] `docker-compose.yml` draft
+- [ ] Failure scenario list with expected system behavior per scenario
+
+### Week 2 — Core Implementation
+
+- [ ] Go: RAFT state machine (Follower / Candidate / Leader)
+- [ ] Go: `RequestVote` + `AppendEntries` + `Heartbeat` handlers
+- [ ] TypeScript: Gateway WebSocket server with leader routing
+- [ ] TypeScript: Frontend canvas with stroke serialization over WebSocket
+- [ ] End-to-end: single client draws, stroke appears on all connected tabs
+
+### Week 3 — Reliability & Zero-Downtime
+
+- [ ] Go: Catch-up sync (`/sync-log`) for restarted replicas
+- [ ] TypeScript: Gateway graceful failover (no client disconnects on leader change)
+- [ ] Docker: Hot-reload triggers RAFT election, system stays live throughout
+- [ ] Demo: kill leader mid-draw, canvas remains consistent across all clients
+- [ ] Logs: captured election, failover, and sync-log events saved in `/logs`
+
+---
+
+## Submission Checklist
+
+- [ ] Source code in `/gateway`, `/replica1`, `/replica2`, `/replica3`, `/frontend`
+- [ ] `docker-compose.yml` — full cluster starts with `docker-compose up --build`
+- [ ] `/logs` — at least 3 captured failover event logs
+- [ ] Architecture document (2–3 pages): cluster diagram, state transitions, API definition, failure-handling design
+- [ ] Demo video (8–10 min):
+  - [ ] Multiple clients drawing simultaneously
+  - [ ] Leader killed → automatic failover shown
+  - [ ] Hot-reload of a replica → system stays live
+  - [ ] Canvas state consistent after restarts
+  - [ ] System under chaotic conditions (multiple rapid failures)
+
+---
+
+## Bonus Challenges
+
+- [ ] Simulate a network partition (split-brain scenario with iptables rules)
+- [ ] Add a 4th replica dynamically without downtime
+- [ ] Implement undo/redo using log compensation entries
+- [ ] Build a live dashboard showing leader, term, and log size per replica
+- [ ] Deploy to AWS EC2 or Google Cloud VM
+
+---
+
 ## References
 
 - [The RAFT Paper — Ongaro & Ousterhout (2014)](https://raft.github.io/raft.pdf)
@@ -519,3 +576,14 @@ networks:
 - [Bun — Fast all-in-one JavaScript runtime](https://bun.sh/)
 - [Hono — Ultrafast web framework](https://hono.dev/)
 - [Next.js — React Framework](https://nextjs.org/)
+
+---
+
+## Team
+
+| Member | Primary Responsibility |
+|---|---|
+| TBD | Go Replicas — RAFT state machine & RPC handlers |
+| TBD | TypeScript (Bun) Gateway — WebSocket server & leader routing via gRPC |
+| TBD | TypeScript (Next.js) Frontend — Canvas, stroke serialization |
+| TBD | DevOps — Docker, docker-compose, hot-reload, integration |
