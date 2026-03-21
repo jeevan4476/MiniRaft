@@ -1,0 +1,185 @@
+# =============================================================================
+# DOCKER COMPOSE - MiniRAFT Cluster
+# =============================================================================
+# This file orchestrates the entire MiniRAFT distributed system:
+#   - 3 RAFT replica nodes (Go/Fiber)
+#   - 1 Gateway (Node.js/Express/WebSocket) [to be implemented]
+#   - 1 Frontend (Vite/TypeScript) [to be implemented]
+#
+# Usage:
+#   docker-compose up --build        # Start the entire cluster
+#   docker-compose up -d             # Start in detached mode
+#   docker-compose logs -f replica1  # Follow logs for replica1
+#   docker-compose stop replica1     # Simulate leader crash
+#   docker-compose start replica1    # Bring replica back online
+#
+# Network:
+#   All services share the 'miniraft-network' Docker network.
+#   Services can reach each other by name (e.g., replica1:9001)
+#
+# Hot-Reload:
+#   Source code directories are mounted as volumes.
+#   Air (for Go) and nodemon (for Node.js) watch for changes.
+#   Editing any .go file triggers automatic rebuild and restart.
+
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # REPLICA 1 - RAFT Node
+  # ===========================================================================
+  # First RAFT replica. Can become Leader, Follower, or Candidate.
+  # Listens on port 9001 for HTTP RPC calls.
+  replica1:
+    build:
+      context: ./replica1
+      dockerfile: Dockerfile
+    container_name: miniraft-replica1
+    ports:
+      - "9001:9001"
+    # Mount the source code for hot-reloading with Air
+    # Any changes to .go files will trigger automatic rebuild
+    volumes:
+      - ./replica1:/app
+    environment:
+      # Unique identifier for this node
+      - REPLICA_ID=replica1
+      # Port to listen on (must match the exposed port)
+      - PORT=9001
+      # Comma-separated list of peer URLs
+      # Note: We use Docker service names (replica2, replica3) which resolve
+      # to container IPs within the Docker network
+      - PEERS=http://replica2:9002,http://replica3:9003
+    networks:
+      - miniraft-network
+    # Restart policy: restart if the container crashes
+    # This simulates a node coming back online after a crash
+    restart: unless-stopped
+    # Health check: verify the node is responsive
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================================================
+  # REPLICA 2 - RAFT Node
+  # ===========================================================================
+  # Second RAFT replica. Identical code to replica1, different configuration.
+  # replica2:
+  #   build:
+  #     context: ./replica2
+  #     dockerfile: Dockerfile
+  #   container_name: miniraft-replica2
+  #   ports:
+  #     - "9002:9002"
+  #   volumes:
+  #     - ./replica2:/app
+  #   environment:
+  #     - REPLICA_ID=replica2
+  #     - PORT=9002
+  #     - PEERS=http://replica1:9001,http://replica3:9003
+  #   networks:
+  #     - miniraft-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:9002/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 10s
+
+  # ===========================================================================
+  # REPLICA 3 - RAFT Node
+  # ===========================================================================
+  # Third RAFT replica. Completes the 3-node cluster for majority quorum.
+  # replica3:
+  #   build:
+  #     context: ./replica3
+  #     dockerfile: Dockerfile
+  #   container_name: miniraft-replica3
+  #   ports:
+  #     - "9003:9003"
+  #   volumes:
+  #     - ./replica3:/app
+  #   environment:
+  #     - REPLICA_ID=replica3
+  #     - PORT=9003
+  #     - PEERS=http://replica1:9001,http://replica2:9002
+  #   networks:
+  #     - miniraft-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:9003/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 10s
+
+  # ===========================================================================
+  # GATEWAY - WebSocket Server & Leader Router (TO BE IMPLEMENTED)
+  # ===========================================================================
+  # The Gateway will:
+  #   - Accept WebSocket connections from browser clients
+  #   - Discover the current Leader by polling /status on all replicas
+  #   - Route stroke submissions to the Leader
+  #   - Broadcast committed strokes to all connected clients
+  #
+  # Uncomment when gateway is implemented:
+  #
+  # gateway:
+  #   build:
+  #     context: ./gateway
+  #     dockerfile: Dockerfile
+  #   container_name: miniraft-gateway
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./gateway/src:/app/src
+  #   environment:
+  #     - GATEWAY_PORT=8080
+  #     - REPLICA_URLS=http://replica1:9001,http://replica2:9002,http://replica3:9003
+  #   networks:
+  #     - miniraft-network
+  #   depends_on:
+  #     - replica1
+  #     - replica2
+  #     - replica3
+  #   restart: unless-stopped
+
+  # ===========================================================================
+  # FRONTEND - Vite Dev Server (TO BE IMPLEMENTED)
+  # ===========================================================================
+  # The Frontend will:
+  #   - Serve the HTML5 Canvas drawing board
+  #   - Connect to the Gateway via WebSocket
+  #   - Send strokes when users draw
+  #   - Receive and render strokes from other users
+  #
+  # Uncomment when frontend is implemented:
+  #
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: miniraft-frontend
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend/src:/app/src
+  #   networks:
+  #     - miniraft-network
+  #   depends_on:
+  #     - gateway
+  #   restart: unless-stopped
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# All services share a single Docker network for inter-container communication.
+# Services can reach each other by name (e.g., http://replica1:9001).
+networks:
+  miniraft-network:
+    name: miniraft-network
+    driver: bridge
