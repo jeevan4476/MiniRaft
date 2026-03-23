@@ -1,31 +1,41 @@
-import { Hono } from 'hono'
-import { upgradeWebSocket, websocket } from 'hono/bun'
-import pino from 'pino'
-import { LeaderTracker } from './leader'
-import { setupWebSocket } from './ws'
+import { websocket } from "hono/bun";
+import pino from "pino";
+import { createGatewayApp } from "./app";
+import { LeaderTracker } from "./leader";
 
-const app = new Hono()
-const log = pino({ transport: { target: 'pino-pretty' } })
+const DEFAULT_REPLICA_URLS = [
+  "http://localhost:9001",
+  "http://localhost:9002",
+  "http://localhost:9003",
+];
 
-const tracker = new LeaderTracker([
-  'http://localhost:9001',
-  'http://localhost:9002',
-  'http://localhost:9003'
-]);
+const log = pino({ transport: { target: "pino-pretty" } });
 
-tracker.startPolling();
+/**
+ * Initialize the LeaderTracker with the Go Replicas.
+ * This runs locally matching our docker-compose.yml configuration.
+ */
+const tracker = new LeaderTracker({
+  peers: process.env.REPLICA_URLS?.split(",").filter(Boolean) ?? DEFAULT_REPLICA_URLS,
+});
 
-app.get('/ws', upgradeWebSocket((c) => setupWebSocket(tracker)))
+if (process.env.DISABLE_GATEWAY_POLLING !== "1") {
+  tracker.startPolling();
+}
 
-app.get('/status', (c) => {
-  return c.json({ status: 'ok', currentLeader: tracker.getLeaderUrl() })
-})
+/**
+ * Bootstrap the Hono Gateway application, injecting the tracker.
+ * This wires up the `/status` checking and the `/ws` WebSocket upgrade endpoints.
+ */
+const app = createGatewayApp({ tracker });
+const port = Number(process.env.GATEWAY_PORT ?? process.env.PORT ?? 3001);
 
-const port = process.env.PORT || 3001
-log.info(`Gateway starting on port ${port}`)
+log.info(`Gateway starting on port ${port}`);
+
+export { app, tracker };
 
 export default {
   port,
   fetch: app.fetch,
-  websocket
-}
+  websocket,
+};
