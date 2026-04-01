@@ -67,55 +67,55 @@ services:
   # REPLICA 2 - RAFT Node
   # ===========================================================================
   # Second RAFT replica. Identical code to replica1, different configuration.
-  # replica2:
-  #   build:
-  #     context: ./replica2
-  #     dockerfile: Dockerfile
-  #   container_name: miniraft-replica2
-  #   ports:
-  #     - "9002:9002"
-  #   volumes:
-  #     - ./replica2:/app
-  #   environment:
-  #     - REPLICA_ID=replica2
-  #     - PORT=9002
-  #     - PEERS=http://replica1:9001,http://replica3:9003
-  #   networks:
-  #     - miniraft-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:9002/health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 10s
+  replica2:
+    build:
+      context: ./replica2
+      dockerfile: Dockerfile
+    container_name: miniraft-replica2
+    ports:
+      - "9002:9002"
+    volumes:
+      - ./replica2:/app
+    environment:
+      - REPLICA_ID=replica2
+      - PORT=9002
+      - PEERS=http://replica1:9001,http://replica3:9003
+    networks:
+      - miniraft-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ===========================================================================
   # REPLICA 3 - RAFT Node
   # ===========================================================================
   # Third RAFT replica. Completes the 3-node cluster for majority quorum.
-  # replica3:
-  #   build:
-  #     context: ./replica3
-  #     dockerfile: Dockerfile
-  #   container_name: miniraft-replica3
-  #   ports:
-  #     - "9003:9003"
-  #   volumes:
-  #     - ./replica3:/app
-  #   environment:
-  #     - REPLICA_ID=replica3
-  #     - PORT=9003
-  #     - PEERS=http://replica1:9001,http://replica2:9002
-  #   networks:
-  #     - miniraft-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:9003/health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 10s
+  replica3:
+    build:
+      context: ./replica3
+      dockerfile: Dockerfile
+    container_name: miniraft-replica3
+    ports:
+      - "9003:9003"
+    volumes:
+      - ./replica3:/app
+    environment:
+      - REPLICA_ID=replica3
+      - PORT=9003
+      - PEERS=http://replica1:9001,http://replica2:9002
+    networks:
+      - miniraft-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ===========================================================================
   # GATEWAY - WebSocket Server & Leader Router (TO BE IMPLEMENTED)
