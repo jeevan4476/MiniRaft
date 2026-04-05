@@ -8,8 +8,8 @@ This document serves as the master ledger for the architecture, rules, and compo
 
 | Component | Language/Tech | Internal Port | Exposed Port | Responsibility |
 | :--- | :--- | :--- | :--- | :--- |
-| **Frontend** | TypeScript / Vite | 3000 | 3000 | Client UI, canvas drawing, WebSocket connection to Gateway. |
-| **Gateway** | Node.js / Express / WS | 8080 | 8080 | Maintains WS connections, routes HTTP requests to the active Leader, broadcasts committed strokes. |
+| **Frontend** | TypeScript / Next.js | 3000 | 3000 | Client UI, canvas drawing, WebSocket connection to Gateway. |
+| **Gateway** | TypeScript / Bun / Hono | 8080 | 8080 | Maintains WS connections, routes HTTP requests to the active Leader, broadcasts committed strokes. |
 | **Replica 1** | Go / Fiber | 9001 | 9001 | RAFT Node (can be Leader, Follower, or Candidate). Maintains stroke log. |
 | **Replica 2** | Go / Fiber | 9002 | 9002 | RAFT Node (can be Leader, Follower, or Candidate). Maintains stroke log. |
 | **Replica 3** | Go / Fiber | 9003 | 9003 | RAFT Node (can be Leader, Follower, or Candidate). Maintains stroke log. |
@@ -285,29 +285,33 @@ Returns current node state. Used by the Gateway to discover the active leader.
 | `replica1/Dockerfile` | ✅ Done | Multi-stage build for Go + Air hot-reload |
 | `replica1/.air.toml` | ✅ Done | Hot-reload configuration |
 
-### 7.2 Gateway (TypeScript/Node) Components
+### 7.2 Gateway (TypeScript/Bun/Hono) Components
 
 | File | Status | Description |
 | :--- | :--- | :--- |
-| `gateway/src/server.ts` | 🔲 Pending | Express + ws WebSocket server |
-| `gateway/src/leaderRouter.ts` | 🔲 Pending | Tracks current leader, re-routes on failover |
-| `gateway/src/broadcaster.ts` | 🔲 Pending | Pushes committed strokes to all clients |
+| `gateway/index.ts` | ✅ Done | Entry point, Bun server startup |
+| `gateway/app.ts` | ✅ Done | Hono app factory with WebSocket upgrade |
+| `gateway/leader.ts` | ✅ Done | LeaderTracker class - polls replicas, identifies leader |
+| `gateway/ws.ts` | ✅ Done | WebSocket handlers (onOpen, onMessage, onClose) |
+| `gateway/types.ts` | ✅ Done | Zod StrokeSchema + TypeScript types |
+| `gateway/tests/` | ✅ Done | Unit + Integration + Smoke tests |
 
-### 7.3 Frontend (TypeScript/Vite) Components
+### 7.3 Frontend (TypeScript/Next.js) Components
 
 | File | Status | Description |
 | :--- | :--- | :--- |
-| `frontend/src/canvas.ts` | 🔲 Pending | Drawing logic, stroke serialization |
-| `frontend/src/socket.ts` | 🔲 Pending | WebSocket client, reconnect logic |
-| `frontend/src/main.ts` | 🔲 Pending | Entry point |
+| `frontend/src/app/page.tsx` | ✅ Done | Main page, renders Canvas component |
+| `frontend/src/app/layout.tsx` | ✅ Done | Root layout with metadata |
+| `frontend/src/components/Canvas.tsx` | ✅ Done | Drawing canvas with WebSocket integration |
+| `frontend/src/hooks/useWebSocket.ts` | ✅ Done | WebSocket hook with auto-reconnect |
 
 ### 7.4 Infrastructure
 
 | File | Status | Description |
 | :--- | :--- | :--- |
-| `docker-compose.yml` | ✅ Done | Full cluster orchestration (replicas ready, gateway/frontend commented) |
-| `replica2/` | 🔲 Pending | Copy of replica1 (run: `cp -r replica1 replica2`) |
-| `replica3/` | 🔲 Pending | Copy of replica1 (run: `cp -r replica1 replica3`) |
+| `docker-compose.yml` | ✅ Done | Full cluster orchestration (all 5 services) |
+| `replica2/` | ✅ Done | Copy of replica1 |
+| `replica3/` | ✅ Done | Copy of replica1 |
 
 ---
 

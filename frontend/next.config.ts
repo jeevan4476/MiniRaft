@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /**
+   * Use Turbopack (Next.js 16 default bundler).
+   * Empty config silences the webpack migration warning.
+   * WATCHPACK_POLLING env var handles hot-reload in Docker.
+   */
+  turbopack: {},
 };
 
 export default nextConfig;

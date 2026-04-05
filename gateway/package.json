@@ -4,12 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --watch index.ts",
-    "test": "bun run scripts/run-tests.ts all",
-    "test:unit": "bun run scripts/run-tests.ts unit",
-    "test:integration": "bun run scripts/run-tests.ts integration",
-    "test:smoke": "bun run scripts/run-tests.ts smoke",
-    "mcp:test": "bun run mcp/server.ts"
+    "dev": "bun --watch index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
