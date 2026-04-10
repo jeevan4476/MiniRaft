@@ -27,58 +27,43 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useWebSocket, type Stroke, type LogEntry } from '../hooks/useWebSocket'
+import Toolbar from './Toolbar'
 
-// ============================================================================
-// Configuration
-// ============================================================================
 
-/** Default stroke color (Tailwind blue-600) */
-const DEFAULT_COLOR = '#2563eb'
-
-/** Default stroke width in pixels */
-const DEFAULT_WIDTH = 4
-
-/** Canvas background color (near-white for a paper-like feel) */
 const CANVAS_BG_COLOR = '#fefefe'
 
-// ============================================================================
-// Component
-// ============================================================================
 
 export default function Canvas() {
-  // ---------------------------------------------------------------------------
+
   // Refs - DOM elements and drawing state that shouldn't trigger re-renders
-  // ---------------------------------------------------------------------------
-  
   /** Reference to the <canvas> DOM element */
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  
+
   /** Reference to the container div (used for sizing) */
   const containerRef = useRef<HTMLDivElement>(null)
-  
+
   /** 
    * Last pointer position during drag.
-   * Used to create line segments from lastPos → currentPos.
+   * Used to create line segments from lastPos -> currentPos.
    */
   const lastPos = useRef<{ x: number; y: number } | null>(null)
 
   /**
    * Store all strokes for redrawing on resize.
-   * This is critical because canvas resize clears all content.
+   * canvas resize clears all content.
    */
   const strokesRef = useRef<Stroke[]>([])
 
-  // ---------------------------------------------------------------------------
+
   // State - Triggers re-renders for UI updates
-  // ---------------------------------------------------------------------------
-  
   /** Whether the user is currently drawing (pointer down) */
   const [isDrawing, setIsDrawing] = useState(false)
+  const [selectedColor, setSelectedColor] = useState('#3b82f6')
+  const [strokeWidth, setStrokeWidth] = useState(4)
+  const [isEraser, setIsEraser] = useState(false)
 
-  // ---------------------------------------------------------------------------
+
   // Drawing Utilities
-  // ---------------------------------------------------------------------------
-
   /**
    * Draws a single stroke segment on the canvas.
    * This is the core rendering function used for both local and remote strokes.
@@ -106,23 +91,23 @@ export default function Canvas() {
    * @param height - Canvas height for background fill
    */
   const redrawAllStrokes = useCallback((
-    ctx: CanvasRenderingContext2D, 
-    width: number, 
+    ctx: CanvasRenderingContext2D,
+    width: number,
     height: number
   ) => {
     // Clear and fill background
     ctx.fillStyle = CANVAS_BG_COLOR
     ctx.fillRect(0, 0, width, height)
-    
+
     // Redraw all strokes
     for (const stroke of strokesRef.current) {
       drawStroke(ctx, stroke)
     }
   }, [drawStroke])
 
-  // ---------------------------------------------------------------------------
+
   // WebSocket Integration
-  // ---------------------------------------------------------------------------
+
 
   /**
    * Called when connection is established and history is received.
@@ -135,7 +120,7 @@ export default function Canvas() {
     if (!ctx) return
 
     console.log(`[Canvas] Rendering ${entries.length} historical strokes`)
-    
+
     // Store and render each historical stroke
     for (const entry of entries) {
       strokesRef.current.push(entry.stroke)
@@ -144,7 +129,7 @@ export default function Canvas() {
   }, [drawStroke])
 
   /**
-   * Called when another user's stroke is received (real-time).
+   * Called when another user's stroke is received.
    * The stroke has already been RAFT-committed by the time we receive it.
    */
   const handleRemoteStroke = useCallback((stroke: Stroke) => {
@@ -164,9 +149,9 @@ export default function Canvas() {
     onStroke: handleRemoteStroke,
   })
 
-  // ---------------------------------------------------------------------------
+
   // Canvas Setup & Resize Handling
-  // ---------------------------------------------------------------------------
+
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -187,14 +172,14 @@ export default function Canvas() {
       const dpr = window.devicePixelRatio || 1
       const width = container.clientWidth
       const height = container.clientHeight
-      
+
       // Set actual canvas size (internal resolution)
       canvas.width = width * dpr
       canvas.height = height * dpr
 
       // Scale context to match DPI
       ctx.scale(dpr, dpr)
-      
+
       // Set display size via CSS
       canvas.style.width = `${width}px`
       canvas.style.height = `${height}px`
@@ -203,7 +188,7 @@ export default function Canvas() {
       redrawAllStrokes(ctx, width, height)
     }
 
-    // Initial setup
+    //setup canvas
     setupCanvas()
 
     // Handle window resize - preserves drawing content
@@ -215,9 +200,9 @@ export default function Canvas() {
     return () => window.removeEventListener('resize', handleResize)
   }, [redrawAllStrokes])
 
-  // ---------------------------------------------------------------------------
+
   // Drawing Event Handlers
-  // ---------------------------------------------------------------------------
+
 
   /**
    * Pointer down - Start drawing.
@@ -233,7 +218,7 @@ export default function Canvas() {
    * Pointer move while drawing - Create line segments.
    * 
    * For each movement:
-   * 1. Draw locally (optimistic UI - user sees immediate feedback)
+   * 1. Draw locally (user sees immediate feedback)
    * 2. Send to Gateway (for RAFT consensus and broadcast)
    * 3. Store in strokesRef (for resize redraw)
    */
@@ -255,8 +240,8 @@ export default function Canvas() {
       y0: lastPos.current.y,
       x1: currentX,
       y1: currentY,
-      color: DEFAULT_COLOR,
-      width: DEFAULT_WIDTH,
+      color: isEraser ? CANVAS_BG_COLOR : selectedColor,
+      width: isEraser ? strokeWidth * 2 : strokeWidth,
     }
 
     // 1. Draw locally immediately (optimistic UI)
@@ -283,27 +268,28 @@ export default function Canvas() {
     lastPos.current = null
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
 
+  // Render
   return (
-    <div ref={containerRef} className="w-full h-full relative cursor-crosshair">
-      {/* Connection Status Indicator */}
+    <div ref={containerRef} className={`w-full h-full relative ${isEraser ? 'cursor-cell' : 'cursor-crosshair'}`}>
+      <Toolbar
+        selectedColor={selectedColor}
+        onSelectColor={setSelectedColor}
+        strokeWidth={strokeWidth}
+        onSelectWidth={setStrokeWidth}
+        isEraser={isEraser}
+        onToggleEraser={setIsEraser}
+      />
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-        {/* Status dot */}
-        <div 
-          className={`w-3 h-3 rounded-full transition-colors ${
-            connectionState === 'connected' 
-              ? 'bg-green-500' 
-              : connectionState === 'connecting'
+        <div
+          className={`w-3 h-3 rounded-full transition-colors ${connectionState === 'connected'
+            ? 'bg-green-500'
+            : connectionState === 'connecting'
               ? 'bg-yellow-500 animate-pulse'
               : 'bg-red-500'
-          }`}
+            }`}
           title={`Status: ${connectionState}`}
         />
-        
-        {/* Reconnect button (shown when disconnected) */}
         {connectionState === 'disconnected' && (
           <button
             onClick={reconnect}
@@ -313,8 +299,6 @@ export default function Canvas() {
           </button>
         )}
       </div>
-
-      {/* The Canvas */}
       <canvas
         ref={canvasRef}
         onPointerDown={startDrawing}
