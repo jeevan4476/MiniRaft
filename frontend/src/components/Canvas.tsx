@@ -121,18 +121,21 @@ export default function Canvas() {
 
     console.log(`[Canvas] Rendering ${entries.length} historical strokes`)
 
-    // Store and render each historical stroke
-    for (const entry of entries) {
-      strokesRef.current.push(entry.stroke)
-      drawStroke(ctx, entry.stroke)
-    }
-  }, [drawStroke])
+    // Replace local history with the committed cluster history.
+    // This avoids duplicating strokes after reconnects or gateway restarts.
+    strokesRef.current = entries.map((entry) => entry.stroke)
+
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    redrawAllStrokes(ctx, width, height)
+  }, [redrawAllStrokes])
 
   /**
-   * Called when another user's stroke is received.
-   * The stroke has already been RAFT-committed by the time we receive it.
+   * Called when a committed stroke is received from the gateway.
+   * This runs for both local and remote strokes so every tab renders the same
+   * committed history instead of mixing committed and optimistic state.
    */
-  const handleRemoteStroke = useCallback((stroke: Stroke) => {
+  const handleCommittedStroke = useCallback((stroke: Stroke) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -146,7 +149,7 @@ export default function Canvas() {
   /** WebSocket hook - manages connection, sends/receives strokes */
   const { sendStroke, connectionState, reconnect } = useWebSocket({
     onHistory: handleHistory,
-    onStroke: handleRemoteStroke,
+    onStroke: handleCommittedStroke,
   })
 
 
@@ -177,7 +180,9 @@ export default function Canvas() {
       canvas.width = width * dpr
       canvas.height = height * dpr
 
-      // Scale context to match DPI
+      // Reset the transform before applying DPR scaling.
+      // Otherwise repeated resizes keep multiplying the coordinate system.
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.scale(dpr, dpr)
 
       // Set display size via CSS
@@ -218,9 +223,9 @@ export default function Canvas() {
    * Pointer move while drawing - Create line segments.
    * 
    * For each movement:
-   * 1. Draw locally (user sees immediate feedback)
-   * 2. Send to Gateway (for RAFT consensus and broadcast)
-   * 3. Store in strokesRef (for resize redraw)
+   * 1. Send to Gateway (for RAFT consensus and broadcast)
+   * 2. Wait for committed broadcast from Gateway
+   * 3. Render the committed stroke in every connected tab
    */
   const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !lastPos.current) return
@@ -244,15 +249,8 @@ export default function Canvas() {
       width: isEraser ? strokeWidth * 2 : strokeWidth,
     }
 
-    // 1. Draw locally immediately (optimistic UI)
-    drawStroke(ctx, stroke)
-
-    // 2. Store for resize redraw
-    strokesRef.current.push(stroke)
-
-    // 3. Send to Gateway for RAFT consensus
-    //    The Gateway will forward to the Leader, which replicates to Followers.
-    //    Once committed, the Gateway broadcasts to other connected clients.
+    // Send to Gateway for RAFT consensus.
+    // The Gateway will broadcast the stroke back only after it is committed.
     sendStroke(stroke)
 
     // Update last position for next segment
@@ -272,6 +270,7 @@ export default function Canvas() {
   // Render
   return (
     <div ref={containerRef} className={`w-full h-full relative ${isEraser ? 'cursor-cell' : 'cursor-crosshair'}`}>
+      
       <Toolbar
         selectedColor={selectedColor}
         onSelectColor={setSelectedColor}
