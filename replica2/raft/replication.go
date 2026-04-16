@@ -9,9 +9,7 @@ import (
 	"time"
 )
 
-// =============================================================================
 // APPEND ENTRIES RPC STRUCTURES
-// =============================================================================
 // These structs define the JSON payloads for the AppendEntries RPC.
 // AppendEntries serves dual purposes:
 //   1. Heartbeat (when entries is empty) - Leader sends to maintain authority
@@ -44,9 +42,7 @@ type AppendEntriesResponse struct {
 	LogLength int  `json:"logLength"`
 }
 
-// =============================================================================
 // HEARTBEAT RPC STRUCTURES
-// =============================================================================
 // Heartbeat is a lightweight keep-alive message from Leader to Followers.
 // It's essentially an AppendEntries with no log entries, but we define
 // separate structs for clarity and to match the API spec.
@@ -63,9 +59,7 @@ type HeartbeatResponse struct {
 	Success bool `json:"success"`
 }
 
-// =============================================================================
 // SYNC LOG RPC STRUCTURES
-// =============================================================================
 // SyncLog is used when a Follower's log is too far behind (e.g., after restart).
 // Instead of replaying AppendEntries one at a time, the Leader sends all
 // committed entries in a single request.
@@ -86,9 +80,7 @@ type SyncLogResponse struct {
 	SyncedUpTo int  `json:"syncedUpTo"`
 }
 
-// =============================================================================
 // LEADER STATE FOR REPLICATION
-// =============================================================================
 // When a node becomes Leader, it needs to track the replication progress
 // for each follower. These are volatile state that's reset on each election.
 
@@ -127,9 +119,7 @@ func (n *Node) InitLeaderState() {
 	}
 }
 
-// =============================================================================
 // HEARTBEAT LOOP (Leader Only)
-// =============================================================================
 // The Leader Must send heartbeats to all peers every 150ms to prevent
 // them from starting elections.
 
@@ -206,9 +196,7 @@ func (n *Node) sendHeartbeatToPeer(peerURL string, term int, leaderId string, le
 	n.Mu.Unlock()
 }
 
-// =============================================================================
 // HANDLE HEARTBEAT (Receiver Side)
-// =============================================================================
 // Called when a Follower receives a heartbeat from the Leader.
 
 // HandleHeartbeat processes an incoming heartbeat from the Leader.
@@ -254,9 +242,7 @@ func (n *Node) HandleHeartbeat(req HeartbeatRequest) HeartbeatResponse {
 	return response
 }
 
-// =============================================================================
 // HANDLE APPEND ENTRIES (Receiver Side)
-// =============================================================================
 // Called when a Follower receives an AppendEntries RPC from the Leader.
 // This is the core of log replication.
 
@@ -369,9 +355,7 @@ func (n *Node) HandleAppendEntries(req AppendEntriesRequest) AppendEntriesRespon
 	return response
 }
 
-// =============================================================================
 // HANDLE SYNC LOG (Receiver Side)
-// =============================================================================
 // Called when a Follower receives a SyncLog RPC from the Leader.
 // This is used for catch-up after a crash/restart.
 
@@ -416,9 +400,7 @@ func (n *Node) HandleSyncLog(req SyncLogRequest) SyncLogResponse {
 	return response
 }
 
-// =============================================================================
 // LEADER: REPLICATE ENTRY TO FOLLOWERS
-// =============================================================================
 // When the Leader receives a new stroke from the Gateway, it Must replicate
 // that stroke to all followers before committing it.
 
@@ -467,14 +449,14 @@ func (n *Node) ReplicateEntry(stroke Stroke) (bool, error) {
 	n.Mu.Unlock()
 
 	// Replicate to all peers in parallel
-	var wg sync.WaitGroup
-	var successMu sync.Mutex
-	successCount := 1 // We count ourselves as a success
+	successChan := make(chan bool, len(peers))
 
 	for _, peerURL := range peers {
-		wg.Add(1)
 		go func(url string) {
-			defer wg.Done()
+			success := false
+			defer func() {
+				successChan <- success
+			}()
 
 			// Get the prevLogIndex and prevLogTerm for this peer
 			n.Mu.Lock()
@@ -511,10 +493,7 @@ func (n *Node) ReplicateEntry(stroke Stroke) (bool, error) {
 			n.Mu.Unlock()
 
 			if resp.Success {
-				successMu.Lock()
-				successCount++
-				successMu.Unlock()
-
+				success = true
 				// Update matchIndex for this peer
 				n.Mu.Lock()
 				if n.LeaderState != nil {
@@ -523,20 +502,91 @@ func (n *Node) ReplicateEntry(stroke Stroke) (bool, error) {
 				n.Mu.Unlock()
 			} else {
 				// AppendEntries failed - peer's log is inconsistent
-				// We need to trigger a sync-log for this peer
 				n.Logger.Printf("term=%d state=LEADER event=replication_rejected peer=%s logLength=%d",
 					currentTerm, url, resp.LogLength)
 
-				// Attempt to sync the follower's log
-				go n.syncFollowerLog(url, currentTerm)
+				if !n.syncFollowerLog(url, currentTerm) {
+					return
+				}
+
+				n.Mu.Lock()
+				nextIdx := newEntry.Index
+				if n.LeaderState != nil {
+					nextIdx = n.LeaderState.NextIndex[url]
+				}
+				if nextIdx < 1 {
+					nextIdx = 1
+				}
+				if nextIdx > len(n.Log.Entries)+1 {
+					nextIdx = len(n.Log.Entries) + 1
+				}
+
+				var retryEntries []LogEntry
+				if nextIdx <= len(n.Log.Entries) {
+					retryEntries = make([]LogEntry, len(n.Log.Entries[nextIdx-1:]))
+					copy(retryEntries, n.Log.Entries[nextIdx-1:])
+				} else {
+					retryEntries = []LogEntry{}
+				}
+
+				retryPrevLogIndex := nextIdx - 1
+				retryPrevLogTerm := 0
+				if retryPrevLogIndex > 0 && retryPrevLogIndex <= len(n.Log.Entries) {
+					retryPrevLogTerm = n.Log.Entries[retryPrevLogIndex-1].Term
+				}
+
+				retryReq := AppendEntriesRequest{
+					Term:         currentTerm,
+					LeaderId:     leaderId,
+					PrevLogIndex: retryPrevLogIndex,
+					PrevLogTerm:  retryPrevLogTerm,
+					Entries:      retryEntries,
+					LeaderCommit: leaderCommit,
+				}
+				n.Mu.Unlock()
+
+				retryResp, retryErr := n.sendAppendEntries(url, retryReq)
+				if retryErr != nil {
+					n.Logger.Printf("term=%d state=LEADER event=replication_retry_failed peer=%s error=%v",
+						currentTerm, url, retryErr)
+					return
+				}
+
+				n.Mu.Lock()
+				if retryResp.Term > n.CurrentTerm {
+					n.BecomeFollower(retryResp.Term)
+					n.Mu.Unlock()
+					return
+				}
+				n.Mu.Unlock()
+
+				if retryResp.Success {
+					success = true
+					n.Mu.Lock()
+					if n.LeaderState != nil {
+						n.LeaderState.MatchIndex[url] = newEntry.Index
+						n.LeaderState.NextIndex[url] = newEntry.Index + 1
+					}
+					n.Mu.Unlock()
+					n.Logger.Printf("term=%d state=LEADER event=replication_retry_succeeded peer=%s index=%d",
+						currentTerm, url, newEntry.Index)
+				}
 			}
 		}(peerURL)
 	}
 
-	wg.Wait()
-
-	// Check if we achieved majority
+	successCount := 1 // We count ourselves as a success
 	majority := (len(peers)+1)/2 + 1
+
+	for i := 0; i < len(peers); i++ {
+		if <-successChan {
+			successCount++
+		}
+		if successCount >= majority {
+			break
+		}
+	}
+
 	committed := successCount >= majority
 
 	if committed {
@@ -554,16 +604,22 @@ func (n *Node) ReplicateEntry(stroke Stroke) (bool, error) {
 
 // syncFollowerLog sends a SyncLog RPC to bring a follower up to date.
 // This is called when AppendEntries fails due to log inconsistency.
-func (n *Node) syncFollowerLog(peerURL string, leaderTerm int) {
+func (n *Node) syncFollowerLog(peerURL string, leaderTerm int) bool {
 	n.Mu.Lock()
 	if n.State != Leader || n.CurrentTerm != leaderTerm {
 		n.Mu.Unlock()
-		return
+		return false
 	}
 
-	// Prepare all committed entries to send
-	entries := make([]LogEntry, len(n.Log.Entries))
-	copy(entries, n.Log.Entries)
+	// Only send committed entries during catch-up.
+	// Uncommitted entries must stay local until they reach quorum.
+	committedCount := n.CommitIndex
+	if committedCount > len(n.Log.Entries) {
+		committedCount = len(n.Log.Entries)
+	}
+
+	entries := make([]LogEntry, committedCount)
+	copy(entries, n.Log.Entries[:committedCount])
 	n.Mu.Unlock()
 
 	req := SyncLogRequest{
@@ -575,7 +631,7 @@ func (n *Node) syncFollowerLog(peerURL string, leaderTerm int) {
 	if err != nil {
 		n.Logger.Printf("term=%d state=LEADER event=sync_log_failed peer=%s error=%v",
 			leaderTerm, peerURL, err)
-		return
+		return false
 	}
 
 	if resp.Success {
@@ -589,12 +645,13 @@ func (n *Node) syncFollowerLog(peerURL string, leaderTerm int) {
 			n.LeaderState.NextIndex[peerURL] = resp.SyncedUpTo + 1
 		}
 		n.Mu.Unlock()
+		return true
 	}
+
+	return false
 }
 
-// =============================================================================
 // NETWORK HELPERS
-// =============================================================================
 
 // sendHeartbeat sends a Heartbeat RPC to a peer via HTTP POST.
 func (n *Node) sendHeartbeat(peerURL string, req HeartbeatRequest) (*HeartbeatResponse, error) {
