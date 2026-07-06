@@ -8,13 +8,11 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mount entire src directory for hot-reload
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/next.config.ts:/app/next.config.ts
     environment:
       - NODE_ENV=development
-      # Enable polling for file watching (required for Docker on Windows/WSL)
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true
     depends_on:
@@ -27,7 +25,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Mount source files for hot-reload
       - ./gateway/index.ts:/app/index.ts
       - ./gateway/app.ts:/app/app.ts
       - ./gateway/ws.ts:/app/ws.ts
@@ -61,7 +58,7 @@ services:
     ports:
       - "9002:9002"
     volumes:
-      - ./replica2:/app
+      - ./replica1:/app
     environment:
       - REPLICA_ID=replica2
       - PORT=9002
@@ -74,7 +71,7 @@ services:
     ports:
       - "9003:9003"
     volumes:
-      - ./replica3:/app
+      - ./replica1:/app
     environment:
       - REPLICA_ID=replica3
       - PORT=9003

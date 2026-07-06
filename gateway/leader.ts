@@ -15,12 +15,6 @@ type LeaderTrackerOptions = {
   requestTimeoutMs?: number;
 };
 
-/**
- * LeaderTracker handles the background discovery process to find the active Go RAFT Leader.
- * It constantly polls all known replicas and checks their `GET /status` endpoint.
- * Because RAFT leadership can change at any time (e.g., if a node crashes), the Gateway Must
- * always know the `currentLeader` to determine where to safely forward WebSocket strokes.
- */
 export class LeaderTracker implements LeaderSource {
   private leaderId: string | null = null;
   private leaderUrl: string | null = null;
@@ -46,10 +40,6 @@ export class LeaderTracker implements LeaderSource {
     this.requestTimeoutMs = requestTimeoutMs;
   }
 
-  /**
-   * pollOnce pings all configured replicas in parallel using Promise.all().
-   * It inspects the RAFT state and term of each replica to pinpoint the current Leader.
-   */
   async pollOnce() {
     const statuses = await Promise.all(
       this.peers.map(async (peer) => {
@@ -70,8 +60,6 @@ export class LeaderTracker implements LeaderSource {
       }),
     );
 
-    // If multiple candidates claim to be Leader (e.g., during network partitions),
-    // we sort by RAFT `term` in descending order. The node with the highest term is the true Leader.
     const nextLeader = statuses
       .filter((candidate): candidate is { peer: string; status: NodeStatus } => candidate !== null)
       .filter(({ status }) => status.state === "LEADER")
@@ -93,9 +81,6 @@ export class LeaderTracker implements LeaderSource {
     }
   }
 
-  /**
-   * startPolling initiates the background interval that keeps the gateway's leader knowledge up to date.
-   */
   startPolling() {
     if (this.poller) {
       return;
